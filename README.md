@@ -85,4 +85,10 @@ git branch -M main
 git remote add origin https://github.com/<TU_USUARIO>/influenza-genomes-pipeline.git
 git push -u origin main
 ```
-"# Influenza_genomes_pipeline" 
+
+## 🧬 Acknowledgements
+Este trabajo ha sido apoyado por la Universidad Nacional Autónoma de México (UNAM) mediante el proyecto **PAPIIT-DGAPA-IN230523** otorgado
+ a **Blanca Taboada**, y por la **Secretaría de Educación, Ciencia, Tecnología e Innovación de la Ciudad de México (SECTEI)** mediante el
+ proyecto **SECTEI/138/2024** otorgado a **Selene Zárate**.
+ 
+ "# Influenza_genomes_pipeline" 
