@@ -1,0 +1,21 @@
+# Outputs pesados e intermedios
+*.sam
+*.bam
+*.bai
+*.fa
+*.fa.gz
+*.fasta.gz
+*.ivar*
+*.vcf*
+*.fastq
+*.fastq.gz
+*.qual.txt*
+*.log
+*.txt~
+FASTQ/
+FASTA/
+SAM/
+BAM/
+VIRUS/
+*/__pycache__/
+.DS_Store
