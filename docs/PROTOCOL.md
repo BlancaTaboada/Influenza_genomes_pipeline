@@ -1,69 +1,97 @@
-# Pipeline de Genomas de Influenza (limpieza → mejor referencia S4/S6 → consenso)
+# Influenza Genomes Pipeline
 
-Este repositorio contiene un flujo en **dos etapas** para procesar lecturas Illumina y generar **consensos por segmento** para Influenza A/B. La etapa 2 elige automáticamente la **mejor referencia** utilizando el soporte de mapeo en **segmento 4 (HA)** y **segmento 6 (NA)**, y luego llama consenso y variantes.
+Bash-based pipeline for processing Illumina paired-end reads and generating segment-level consensus genomes for Influenza A and B viruses.
 
-## Scripts incluidos
-- `scripts/preProcess_list_v2.sh` — Limpieza por lotes con `fastp` (apto para SGE).
-- `scripts/ConsensoInfluenza_v3.sh` — Mapeo multi-referencia **mínimo**, selección de la mejor referencia por **S4/S6 (HA/NA)** y generación de consenso con `ivar`.
+The workflow is organized in two main stages. First, raw reads are cleaned with `fastp`. Second, cleaned reads are mapped against multiple influenza reference genomes. The best reference is selected automatically using mapping support on segment 4 (HA) and segment 6 (NA), followed by consensus and variant calling with `iVar`.
 
----
+## Included scripts
 
-## Requisitos
-- Linux (probado en clusters SGE).
-- Herramientas (ajusta a tu entorno): `fastp`, `bowtie2`, `samtools`, `bcftools`, `bamtools`, `ivar`.
-- Variables SGE utilizadas: `$SGE_TASK_ID`, `$NSLOTS`.
+- `scripts/preProcess_list_v2.sh`: batch read preprocessing with `fastp`; suitable for SGE-based clusters.
+- `scripts/ConsensoInfluenza_v3.sh`: minimal multi-reference mapping, best-reference selection using S4/S6 (HA/NA), and consensus generation with `iVar`.
 
-### Estructura de entradas
-- FASTQ/FASTQ.GZ pareados en un directorio, con convención `R1_` / `R2_` (ej. `SampleX_R1_001.fastq.gz`, `SampleX_R2_001.fastq.gz`).
-- Un archivo de lista `FileNames.txt` con **R1 en la línea N** y **R2 en la línea N+1** (así se emparejan con `$SGE_TASK_ID`). Hay un ejemplo en `examples/FileNames.txt`.
+## Requirements
 
-### Referencias
-Coloca en `refs/` todas las referencias a evaluar e indexa cada una con Bowtie2:
+- Linux environment; tested on SGE clusters.
+- Required tools: `fastp`, `bowtie2`, `samtools`, `bcftools`, `bamtools`, and `ivar`.
+- SGE variables used by the scripts: `$SGE_TASK_ID` and `$NSLOTS`.
+
+## Input structure
+
+- Paired FASTQ or FASTQ.GZ files in the same directory, using an `R1_` / `R2_` naming convention, for example:
+
+```text
+SampleX_R1_001.fastq.gz
+SampleX_R2_001.fastq.gz
+```
+
+- A `FileNames.txt` file listing paired reads in consecutive lines. For each sample, R1 must be listed in line N and R2 in line N+1. This pairing is handled through `$SGE_TASK_ID`.
+
+An example file is provided in `examples/FileNames.txt`.
+
+## References
+
+Place all reference genomes to be evaluated in `refs/`, and index each one with Bowtie2:
+
 ```bash
 bowtie2-build A_H1N1.fasta A_H1N1
 bowtie2-build A_H3N2.fasta A_H3N2
 bowtie2-build B_Victoria.fasta B_Victoria
 bowtie2-build B_Yamagata.fasta B_Yamagata
 ```
-Para cada referencia incluye:
-- `{ref}.fasta` + su índice (`{ref}.fasta.fai`).
-- `{ref}.bed` con regiones/segmentos (usar nombres consistentes para **S4_HA** y **S6_NA**).
-- `{ref}.gff3` por segmento si tu flujo los requiere.
 
-> La **selección de mejor referencia** se basa en el número de alineamientos sobre S4/S6 en cada mapeo. Asegúrate que los nombres de segmento en FASTA/BED/GFF3 coincidan con lo que el script espera (por defecto `S4_HA` y `S6_NA`).
+For each reference, include:
 
----
+- `{ref}.fasta` and its FASTA index (`{ref}.fasta.fai`).
+- `{ref}.bed` with segment coordinates. Segment names must be consistent, especially for `S4_HA` and `S6_NA`.
+- `{ref}.gff3` files per segment, if required by the workflow.
 
-## Etapa 1 — Limpieza de lecturas
-Ejemplo (ajusta rangos/colas/rutas según tu cluster):
+Best-reference selection is based on the number of alignments supporting S4/S6 in each mapping. Make sure that segment names in FASTA, BED, and GFF3 files match the names expected by the script. By default, the expected segment names are `S4_HA` and `S6_NA`.
+
+## Stage 1: read preprocessing
+
+Example command; adjust task ranges, queues, and paths according to your cluster:
+
 ```bash
-qsub -R y -l h_rt=23:59:59 -pe thread 4 -t 1-100   scripts/preProcess_list_v2.sh   /ruta/a/FASTQ   FileNames.txt   /ruta/a/Results
+qsub -R y -l h_rt=23:59:59 -pe thread 4 -t 1-100 \
+  scripts/preProcess_list_v2.sh \
+  /path/to/FASTQ \
+  FileNames.txt \
+  /path/to/Results
 ```
-**Salida:** pares `{Sample}_Q.fastq.gz` en `Results` y logs con conteos pre/post.
 
-## Etapa 2 — Consenso + variantes (mejor referencia por S4/S6)
-Ejecuta apuntando al directorio con los FASTQ limpios y tu `FileNames.txt`:
+Output: cleaned paired files named `{Sample}_Q.fastq.gz` in the `Results` directory, along with logs containing pre- and post-filtering read counts.
+
+## Stage 2: consensus and variant calling
+
+Run the consensus script using the directory containing cleaned FASTQ files and the same `FileNames.txt` file:
+
 ```bash
-qsub -R y -l h_rt=23:59:59 -pe thread 4 -t 1-100   scripts/ConsensoInfluenza_v3.sh   /ruta/a/Results   FileNames.txt   /ruta/absoluta/a/refs
+qsub -R y -l h_rt=23:59:59 -pe thread 4 -t 1-100 \
+  scripts/ConsensoInfluenza_v3.sh \
+  /path/to/Results \
+  FileNames.txt \
+  /absolute/path/to/refs
 ```
-**Resumen por muestra:**
-1. Mapea contra **cada** referencia (`bowtie2 --very-sensitive-local`).
-2. **Cuenta alineamientos** en `S4_HA` y `S6_NA` y **elige la referencia** con mayor soporte.
-3. Genera BAM ordenado/indexado, VCF (`bcftools`) y consensos + variantes por segmento (`ivar consensus` / `ivar variants`).
-4. Organiza salidas en `FASTA/`, `SAM/`, `BAM/`, `VIRUS/` y crea un FASTA concatenado `{sample}_All_ivar2.fasta`.
 
----
+Per-sample workflow:
 
-## Consejos y solución de problemas
-- Si no se elige referencia, revisa coincidencia exacta de nombres de segmentos en FASTA/BED/GFF3.
-- Para lecturas muy cortas (<60 nt), podrías ajustar `--score-min` de Bowtie2.
-- `ivar consensus` por defecto usa `-q 20`, `-m 5`, `-t 0` (enmascara baja cobertura con `N`). Ajusta según tu criterio.
-- Verifica que `$NSLOTS` esté definido por tu cola; si no, ajusta hilos en los scripts.
+1. Map reads against each reference using `bowtie2 --very-sensitive-local`.
+2. Count alignments supporting `S4_HA` and `S6_NA`.
+3. Select the reference with the highest mapping support.
+4. Generate sorted and indexed BAM files, VCF files, segment-level consensus FASTA files, and variant tables.
+5. Organize outputs into `FASTA/`, `SAM/`, `BAM/`, and `VIRUS/` directories.
+6. Generate a concatenated FASTA file named `{sample}_All_ivar2.fasta`.
 
----
+## Troubleshooting
 
-## Estructura del repositorio
-```
+- If no reference is selected, check that segment names match exactly across FASTA, BED, and GFF3 files.
+- For very short reads (<60 nt), consider adjusting Bowtie2 `--score-min` parameters.
+- By default, `ivar consensus` uses `-q 20`, `-m 5`, and `-t 0`, masking low-coverage positions with `N`. Adjust these thresholds according to your analysis criteria.
+- Verify that `$NSLOTS` is defined by your SGE queue. Otherwise, manually set the number of threads in the scripts.
+
+## Repository structure
+
+```text
 influenza-genomes-pipeline/
 ├─ scripts/
 │  ├─ preProcess_list_v2.sh
@@ -76,12 +104,10 @@ influenza-genomes-pipeline/
 └─ README.md
 ```
 
-## Publicar en GitHub
-```bash
-git init
-git add .
-git commit -m "Initial commit: influenza genomes pipeline (v3 minimal)"
-git branch -M main
-git remote add origin https://github.com/<TU_USUARIO>/influenza-genomes-pipeline.git
-git push -u origin main
-```
+## Citation
+
+If you use this pipeline, please cite the associated publication or repository version when available.
+
+## Acknowledgements
+
+This work was supported by Universidad Nacional Autónoma de México (UNAM) through PAPIIT-DGAPA-IN230523 awarded to Blanca Taboada, and by Secretaría de Educación, Ciencia, Tecnología e Innovación de la Ciudad de México (SECTEI) through project SECTEI/138/2024 awarded to Selene Zárate.
